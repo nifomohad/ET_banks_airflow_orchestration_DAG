@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import pendulum
+
+from airflow.models.dag import DAG
+from airflow.operators.bash import BashOperator
+
+# Define the dbt project directory and Conda environment
+DBT_PROJECT_PATH = "~/projects/dbt_my_project/Ethiopian-Banks-and-Insurance-year_on_year-growth"
+CONDA_ENV_NAME = "dbtenv"
+
+# Define the shell command to execute
+# Note: Since 'conda activate' sets up the environment in the current shell context, 
+# we combine the commands with '&&' to ensure they run sequentially in the same shell session.
+# We also use 'source $(conda info --base)/etc/profile.d/conda.sh' to initialize conda in the script environment
+# if it's not already initialized.
+BASE_DBT_COMMAND_PREFIX = f"""
+source $(conda info --base)/etc/profile.d/conda.sh && 
+cd {DBT_PROJECT_PATH} && 
+conda activate {CONDA_ENV_NAME} 
+"""
+
+with DAG(
+    dag_id="dbt_debug_validation_dag",
+    start_date=pendulum.datetime(2025, 7, 1, tz="UTC"),
+    schedule=None,  # Set a schedule interval (e.g., '@daily') or None for manual runs
+    catchup=False,
+    tags=["dbt", "debug", "conda"],
+) as dag_debug:
+    
+    validate_dbt_environment = BashOperator(
+        task_id="validate_dbt_environment",
+        bash_command=BASE_DBT_COMMAND_PREFIX + "dbt debug",
+        # Setting 'cwd' explicitly in BashOperator is usually preferred, 
+        # but here we use `cd` within the `bash_command` to ensure the conda activation 
+        # happens first and then the directory change for dbt execution.
+        # Ensure the user running the Airflow worker has access to the specified paths and environment.
+    )
+
+    
+# --- DAG 1: dbt run ---
+with DAG(
+    dag_id="dbt_run_dag",
+    start_date=pendulum.datetime(2025, 7, 1, tz="UTC"),
+    schedule=None,  # Set a schedule interval or leave as None for manual runs
+    catchup=False,
+    tags=["dbt", "run", "transformation"],
+) as dag_run:
+    
+    dbt_run_task = BashOperator(
+        task_id="run_dbt_models",
+        bash_command=BASE_DBT_COMMAND_PREFIX + "dbt run",
+    )
+
+# --- DAG 2: dbt test ---
+with DAG(
+    dag_id="dbt_test_dag",
+    start_date=pendulum.datetime(2025, 7, 1, tz="UTC"),
+    schedule=None,
+    catchup=False,
+    tags=["dbt", "test", "quality_check"],
+) as dag_test:
+    
+    dbt_test_task = BashOperator(
+        task_id="run_dbt_tests",
+        bash_command=BASE_DBT_COMMAND_PREFIX + "dbt test",
+    )
+
+# --- DAG 3: dbt build ---
+with DAG(
+    dag_id="dbt_build_dag",
+    start_date=pendulum.datetime(2025, 7, 1, tz="UTC"),
+    schedule=None,
+    catchup=False,
+    tags=["dbt", "build", "pipeline"],
+) as dag_build:
+    
+    dbt_build_task = BashOperator(
+        task_id="build_dbt_project",
+        bash_command=BASE_DBT_COMMAND_PREFIX + "dbt build",
+    )
+
+# --- DAG 4: dbt docs generate ---
+with DAG(
+    dag_id="dbt_docs_generate_dag",
+    start_date=pendulum.datetime(2025, 7, 1, tz="UTC"),
+    schedule=None,
+    catchup=False,
+    tags=["dbt", "documentation"],
+) as dag_docs_generate:
+    
+    dbt_docs_generate_task = BashOperator(
+        task_id="generate_dbt_docs",
+        bash_command=BASE_DBT_COMMAND_PREFIX + "dbt docs generate",
+    )
+
+
